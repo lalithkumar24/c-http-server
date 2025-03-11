@@ -1,0 +1,51 @@
+# Compiled binary
+server
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Precompiled headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects
+*.so
+*.so.*
+*.dylib
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Editor specific files
+*~
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build directories
+build/
+bin/
+obj/
+
+# Dependency directories
+deps/
+
+# Core dump files
+core
+
+# Temporary files created by the OS
+.DS_Store
+Thumbs.db
