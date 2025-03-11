@@ -2,15 +2,17 @@
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
-const char *CRIF = "\r\n";
-const char *SP = " ";
-const int PORT = 6979;
+#define CRIF "\r\n"
+#define SP " "
+int PORT = 6979;
 
 typedef struct {
   string method;
@@ -19,10 +21,31 @@ typedef struct {
 } http_req_line;
 
 typedef enum {
-  HTTP_RES_INTERNAL_SERVER_ERROR = 500,
-  HTTP_RES_BAD_REQUEST = 400,
   HTTP_RES_OK = 200,
+  HTTP_RES_BAD_REQUEST = 400,
+  HTTP_RES_NOT_FOUND = 404,
+  HTTP_RES_INTERNAL_SERVER_ERROR = 500,
 } http_status;
+
+const char *http_status_to_string(http_status status) {
+  switch (status) {
+  case HTTP_RES_OK:
+    return "OK";
+  case HTTP_RES_BAD_REQUEST:
+    return "Bad Request";
+  case HTTP_RES_INTERNAL_SERVER_ERROR:
+    return "Internal Server Error";
+  case HTTP_RES_NOT_FOUND:
+    return "Not Found";
+  default:
+    return "Unknown";
+  }
+}
+
+typedef struct {
+  string version;
+  http_status status;
+} http_res_line;
 
 http_req_line http_req_line_init(void) {
   http_req_line line;
@@ -53,13 +76,43 @@ http_status pars_req_line(http_req_line *req_line, const char *buff,
   return HTTP_RES_OK;
 }
 
+string header_generater(char *buf, size_t buf_len, http_status status,
+                        size_t body_len) {
+  string response;
+  response.len = 0;
+  memset(buf, 0, buf_len);
+  response.len += sprintf(buf, "%s %d %s" CRIF, "HTTP/1.0", status,
+                          http_status_to_string(status));
+  response.len +=
+      sprintf(buf + response.len, "Content-lenght:%zu" CRIF, body_len);
+  response.len += sprintf(buf + response.len, CRIF);
+  response.data = buf;
+  return response;
+}
+
+bool send_response(int socked_id, string header, string body) {
+  ssize_t n = send(socked_id, header.data, header.len, MSG_MORE);
+  if (n < 0) {
+    perror("send()");
+    return false;
+  }
+  if (n == 0) {
+    fprintf(stderr, "send() returned 0\n");
+    return false;
+  }
+  n = send(socked_id, body.data, body.len, 0);
+  return true;
+}
+
 int handle_client(int client_sockid) {
   size_t n = 0;
   char buffer[1024];
-  const char *hello = "HTTP/1.0 200 OK\r\n\r\n<h1>Hello from WSL Server!</h1>";
-  const char *bye = "http/1.0 200 ok\r\n\r\n<h1>bye from wsl server!</h1>";
-  const char *defult =
-      "http/1.0 200 ok\r\n\r\n<h1>coustom server writen in c</h1>";
+  string hello_body = convert_cstr_string("<h1>Hello from WSL Server!</h1>");
+  string bye_body = convert_cstr_string("<h1>bye from wsl server!</h1>");
+  string defult_body =
+      convert_cstr_string("<h1>coustom server writen in c</h1>");
+  string err_404 = convert_cstr_string(
+      "<p>Error 404: Not Found</p><p><a href=\"/\">Back to home</a></p>");
   memset(&buffer, 0, sizeof(buffer));
   printf("\n ------------------------ \n");
   while (true) {
@@ -78,15 +131,15 @@ int handle_client(int client_sockid) {
 
     string_splits lines = split_string(buffer, n, CRIF);
 
-    if (lines.count < 0) {
+    if (lines.count < 1) {
       printf("Error: empty buffer\n");
       return -1;
     }
     http_req_line req_line = http_req_line_init();
     http_status status =
         pars_req_line(&req_line, lines.splits[0].start, lines.splits[0].len);
+    free_string_splits(&lines);
     if (status != HTTP_RES_OK) {
-      // todo retuen crt page:
       printf("ERROR: failed to passer request");
       return -1;
     }
@@ -94,14 +147,30 @@ int handle_client(int client_sockid) {
     string route_bye = convert_cstr_string("/bye");
     string defult_route = convert_cstr_string("/");
     if (string_equal(&req_line.uri, &defult_route)) {
-      (void)write(client_sockid, defult, strlen(defult));
+      if (!send_response(client_sockid,
+                         header_generater(buffer, sizeof(buffer), HTTP_RES_OK,
+                                          defult_body.len),
+                         defult_body))
+        return -1;
     } else if (string_equal(&req_line.uri, &route_hello)) {
-      (void)write(client_sockid, hello, strlen(hello));
+      if (!send_response(client_sockid,
+                         header_generater(buffer, sizeof(buffer), HTTP_RES_OK,
+                                          hello_body.len),
+                         hello_body))
+        return -1;
     } else if (string_equal(&req_line.uri, &route_bye)) {
-      (void)write(client_sockid, bye, strlen(bye));
+      if (!send_response(client_sockid,
+                         header_generater(buffer, sizeof(buffer), HTTP_RES_OK,
+                                          bye_body.len),
+                         bye_body))
+        return -1;
     } else {
-      printf("ERROR:unknown route:%.*s\n", (int)req_line.uri.len,
+      printf("ERROR: unknown route: \"%.*s\"\n", (int)req_line.uri.len,
              req_line.uri.data);
+      (void)send_response(client_sockid,
+                          header_generater(buffer, sizeof(buffer),
+                                           HTTP_RES_NOT_FOUND, err_404.len),
+                          err_404);
       return -1;
     }
     close(client_sockid);

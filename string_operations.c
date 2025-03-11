@@ -30,7 +30,7 @@ string_splits split_string(const char *str, size_t len, const char *split_by) {
   size_t split_by_len = strlen(split_by);
 
   result.capacity = 8;
-  result.splits =(string_view*) calloc(sizeof(string_view), result.capacity);
+  result.splits = (string_view *)calloc(sizeof(string_view), result.capacity);
   result.count = 0;
   for (size_t i = 0; i < len; ++i) {
     if (i + split_by_len < len &&
