@@ -1,6 +1,8 @@
 #include "file.h"
 #include "string_operations.h"
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <linux/limits.h>
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -9,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -17,6 +20,7 @@
 #define CRIF "\r\n"
 #define SP " "
 int PORT = 6979;
+const string WEB_ROOT = STRING_FROM_CSTR("./www/");
 
 typedef struct {
   string method;
@@ -107,35 +111,84 @@ bool send_response(int socked_id, string header, string body) {
   n = send(socked_id, body.data, body.len, 0);
   return true;
 }
-string passerFile(char *filename) {
 
-  FILE *fileptr;
+static string err_404 = STRING_FROM_CSTR("<p>Error 404: Not Found</p>");
+
+bool http_serve_file(int client_sockid, string filename) {
   char buffer[1024];
-  char readBuffer[1000000];
-  string content;
-  int n = 0;
-  memset(&content, 0, sizeof(string));
-  fileptr = fopen(filename, "r");
-  if (fileptr == NULL) {
+  char filename_buf[64];
+  string header;
+  int in_fd = -1;
+  ssize_t result = 0;
+  bool retrun_value = true;
+  size_t sent = 0;
+  off_t sendfile_offset = 0;
+
+  memset(filename_buf, 0, sizeof(filename_buf));
+  memcpy(filename_buf, WEB_ROOT.data, WEB_ROOT.len);
+  memcpy(filename_buf + WEB_ROOT.len - 1, filename.data, filename.len);
+
+  file_metadata metadata = file_status(convert_cstr_string(filename_buf));
+  if (!metadata.exists) {
+    (void)send_response(client_sockid,
+                        header_generater(buffer, sizeof(buffer),
+                                         HTTP_RES_NOT_FOUND, err_404.len),
+                        err_404);
+    retrun_value = false;
+    goto cleanup;
+  }
+
+  header = header_generater(buffer, sizeof(buffer), HTTP_RES_OK, metadata.size);
+
+  ssize_t n = send(client_sockid, header.data, header.len, MSG_MORE);
+  if (n < 0) {
+    perror("send()");
+    retrun_value = false;
+    goto cleanup;
+  }
+  if (n == 0) {
     fprintf(stderr, "send() returned 0\n");
-    exit(0);
+    retrun_value = false;
+    goto cleanup;
   }
-  while (fscanf(fileptr, "%s", buffer) == 1) {
-    n += sprintf(readBuffer + n, "%s ", buffer);
+
+  in_fd = open(filename_buf, O_RDONLY);
+  if (in_fd < 0) {
+    (void)send_response(client_sockid,
+                        header_generater(buffer, sizeof(buffer),
+                                         HTTP_RES_NOT_FOUND, err_404.len),
+                        err_404);
+    retrun_value = false;
+    goto cleanup;
   }
-  fclose(fileptr);
-  content = convert_cstr_string(readBuffer);
-  return content;
+  while (sent < metadata.size) {
+
+    result = sendfile(client_sockid, in_fd, &sendfile_offset, metadata.size);
+    if (result < 0) {
+      printf("ERROR: sendfile failed: \"%s\": %s\n", filename.data,
+             strerror(errno));
+      (void)send_response(client_sockid,
+                          header_generater(buffer, sizeof(buffer),
+                                           HTTP_RES_INTERNAL_SERVER_ERROR,
+                                           err_404.len),
+
+                          err_404);
+      retrun_value = false;
+      goto cleanup;
+    }
+    sent += result;
+  }
+cleanup:
+  if (in_fd != -1) {
+    close(in_fd);
+  }
+  return retrun_value;
 }
+
 int handle_client(int client_sockid) {
   size_t n = 0;
   char buffer[1024];
-  string hello_body = convert_cstr_string("<h1>Hello from WSL Server!</h1>");
-  string bye_body = convert_cstr_string("<h1>bye from wsl server!</h1>");
-  string defult_body =
-      convert_cstr_string("<h1>coustom server writen in c</h1>");
-  string err_404 = convert_cstr_string(
-      "<p>Error 404: Not Found</p><p><a href=\"/\">Back to home</a></p>");
+
   memset(&buffer, 0, sizeof(buffer));
   printf("\n ------------------------ \n");
   while (true) {
@@ -166,35 +219,17 @@ int handle_client(int client_sockid) {
       printf("ERROR: failed to passer request");
       return -1;
     }
-    string route_hello = convert_cstr_string("/hello");
-    string route_bye = convert_cstr_string("/bye");
-    string defult_route = convert_cstr_string("/");
-    if (string_equal(&req_line.uri, &defult_route)) {
-      if (!send_response(client_sockid,
-                         header_generater(buffer, sizeof(buffer), HTTP_RES_OK,
-                                          defult_body.len),
-                         defult_body))
+
+    string route_root = convert_cstr_string("/");
+
+    if (string_equal(&req_line.uri, &route_root)) {
+      if (!http_serve_file(client_sockid, convert_cstr_string("index.html"))) {
         return -1;
-    } else if (string_equal(&req_line.uri, &route_hello)) {
-      if (!send_response(client_sockid,
-                         header_generater(buffer, sizeof(buffer), HTTP_RES_OK,
-                                          hello_body.len),
-                         hello_body))
-        return -1;
-    } else if (string_equal(&req_line.uri, &route_bye)) {
-      if (!send_response(client_sockid,
-                         header_generater(buffer, sizeof(buffer), HTTP_RES_OK,
-                                          bye_body.len),
-                         bye_body))
-        return -1;
+      }
     } else {
-      printf("ERROR: unknown route: \"%.*s\"\n", (int)req_line.uri.len,
-             req_line.uri.data);
-      (void)send_response(client_sockid,
-                          header_generater(buffer, sizeof(buffer),
-                                           HTTP_RES_NOT_FOUND, err_404.len),
-                          err_404);
-      return -1;
+      if (!http_serve_file(client_sockid,req_line.uri )) {
+        return -1;
+      }
     }
     close(client_sockid);
     break;
@@ -211,9 +246,8 @@ int main(void) {
   int ret = 0;
   int clinet_socket = 0;
   int enable = 1;
-  const char *web_root = "./www";
 
-  file_metadata metadata = file_status(convert_cstr_string(web_root));
+  file_metadata metadata = file_status(WEB_ROOT);
   if (metadata.exists) {
     printf("file exits\n");
   } else {
@@ -223,7 +257,7 @@ int main(void) {
       second 3 for group
       last 3 is for others
      */
-    mkdir(web_root,
+    mkdir(WEB_ROOT.data,
           S_IEXEC | S_IWRITE | S_IREAD | S_IRGRP | S_IXGRP | S_IXOTH | S_IROTH);
   }
 

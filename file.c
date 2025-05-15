@@ -17,6 +17,7 @@ file_metadata file_status(string filename) {
   if (stat(buff, &st) < 0) {
     return metadate;
   }
+  metadate.size = st.st_size;
   metadate.exists = true;
   return metadate;
 }

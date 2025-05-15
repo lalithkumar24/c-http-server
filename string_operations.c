@@ -7,6 +7,7 @@ bool string_equal(string *a, string *b) {
   return a->len == b->len && memcmp(a->data, b->data, a->len) == 0;
 }
 
+
 string convert_cstr_string(const char *str) {
   string s;
   s.len = strlen(str);
@@ -43,8 +44,8 @@ string_splits split_string(const char *str, size_t len, const char *split_by) {
       i += split_by_len;
       if (result.count == result.capacity) {
         result.capacity *= 2;
-        string *temp = (string *)realloc(
-            result.splits, sizeof(string) * result.capacity);
+        string *temp =
+            (string *)realloc(result.splits, sizeof(string) * result.capacity);
         if (temp) {
           result.splits = temp;
         } else {
