@@ -1,4 +1,7 @@
+#include "file.h"
 #include "string_operations.h"
+#include <dirent.h>
+#include <linux/limits.h>
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -7,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -64,13 +68,13 @@ http_status pars_req_line(http_req_line *req_line, const char *buff,
            components.count);
     return HTTP_RES_BAD_REQUEST;
   }
-  req_line->method.data = components.splits[0].start;
+  req_line->method.data = components.splits[0].data;
   req_line->method.len = components.splits[0].len;
 
-  req_line->uri.data = components.splits[1].start;
+  req_line->uri.data = components.splits[1].data;
   req_line->uri.len = components.splits[1].len;
 
-  req_line->version.data = components.splits[2].start;
+  req_line->version.data = components.splits[2].data;
   req_line->version.len = components.splits[2].len;
   free_string_splits(&components);
   return HTTP_RES_OK;
@@ -103,7 +107,26 @@ bool send_response(int socked_id, string header, string body) {
   n = send(socked_id, body.data, body.len, 0);
   return true;
 }
+string passerFile(char *filename) {
 
+  FILE *fileptr;
+  char buffer[1024];
+  char readBuffer[1000000];
+  string content;
+  int n = 0;
+  memset(&content, 0, sizeof(string));
+  fileptr = fopen(filename, "r");
+  if (fileptr == NULL) {
+    fprintf(stderr, "send() returned 0\n");
+    exit(0);
+  }
+  while (fscanf(fileptr, "%s", buffer) == 1) {
+    n += sprintf(readBuffer + n, "%s ", buffer);
+  }
+  fclose(fileptr);
+  content = convert_cstr_string(readBuffer);
+  return content;
+}
 int handle_client(int client_sockid) {
   size_t n = 0;
   char buffer[1024];
@@ -137,7 +160,7 @@ int handle_client(int client_sockid) {
     }
     http_req_line req_line = http_req_line_init();
     http_status status =
-        pars_req_line(&req_line, lines.splits[0].start, lines.splits[0].len);
+        pars_req_line(&req_line, lines.splits[0].data, lines.splits[0].len);
     free_string_splits(&lines);
     if (status != HTTP_RES_OK) {
       printf("ERROR: failed to passer request");
@@ -188,6 +211,22 @@ int main(void) {
   int ret = 0;
   int clinet_socket = 0;
   int enable = 1;
+  const char *web_root = "./www";
+
+  file_metadata metadata = file_status(convert_cstr_string(web_root));
+  if (metadata.exists) {
+    printf("file exits\n");
+  } else {
+
+    /* rwxr-xr-x
+      first 3 for user
+      second 3 for group
+      last 3 is for others
+     */
+    mkdir(web_root,
+          S_IEXEC | S_IWRITE | S_IREAD | S_IRGRP | S_IXGRP | S_IXOTH | S_IROTH);
+  }
+
   /* Initialize*/
   tcpsockt = socket(AF_INET,     /*IPv4*/
                     SOCK_STREAM, /*TCP*/

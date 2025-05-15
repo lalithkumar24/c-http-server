@@ -30,12 +30,12 @@ string_splits split_string(const char *str, size_t len, const char *split_by) {
   size_t split_by_len = strlen(split_by);
 
   result.capacity = 8;
-  result.splits = (string_view *)calloc(sizeof(string_view), result.capacity);
+  result.splits = (string *)calloc(sizeof(string), result.capacity);
   result.count = 0;
   for (size_t i = 0; i < len; ++i) {
     if (i + split_by_len < len &&
         memcmp(&str[i], split_by, split_by_len) == 0) {
-      result.splits[result_i].start = start;
+      result.splits[result_i].data = start;
       result.splits[result_i].len = &str[i] - start;
       result.count += 1;
       result_i += 1;
@@ -43,8 +43,8 @@ string_splits split_string(const char *str, size_t len, const char *split_by) {
       i += split_by_len;
       if (result.count == result.capacity) {
         result.capacity *= 2;
-        string_view *temp = (string_view *)realloc(
-            result.splits, sizeof(string_view) * result.capacity);
+        string *temp = (string *)realloc(
+            result.splits, sizeof(string) * result.capacity);
         if (temp) {
           result.splits = temp;
         } else {
@@ -56,7 +56,7 @@ string_splits split_string(const char *str, size_t len, const char *split_by) {
   }
   size_t last_len = &str[len] - start;
   if (last_len > 0) {
-    result.splits[result_i].start = start;
+    result.splits[result_i].data = start;
     result.splits[result_i].len = last_len;
     result.count += 1;
   }
