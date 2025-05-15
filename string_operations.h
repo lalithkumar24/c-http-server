@@ -3,7 +3,7 @@
 #include <stddef.h>
 
 #define STRING_FROM_CSTR(str)                                                  \
-  (string) { .data = str, .len = sizeof(str)} 
+  (string) { .data = str, .len = sizeof(str) }
 
 typedef struct {
   const char *data;

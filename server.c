@@ -227,7 +227,7 @@ int handle_client(int client_sockid) {
         return -1;
       }
     } else {
-      if (!http_serve_file(client_sockid,req_line.uri )) {
+      if (!http_serve_file(client_sockid, req_line.uri)) {
         return -1;
       }
     }

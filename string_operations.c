@@ -7,7 +7,6 @@ bool string_equal(string *a, string *b) {
   return a->len == b->len && memcmp(a->data, b->data, a->len) == 0;
 }
 
-
 string convert_cstr_string(const char *str) {
   string s;
   s.len = strlen(str);
